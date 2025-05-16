@@ -1,5 +1,7 @@
 ﻿using JWTAuthDotnet9.Entities;
 using JWTAuthDotnet9.Models;
+using JWTAuthDotnet9.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -12,46 +14,43 @@ namespace JWTAuthDotnet9.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    public class AuthController(IConfiguration configuration) : ControllerBase
+    public class AuthController(IAuthService authService) : ControllerBase
     {
-        public static User user = new();
+      
         [HttpPost("register")]
-        public ActionResult<User> Register(UserDto userDto)
+        public async Task<ActionResult<User>> Register(UserDto userDto)
         {
-            var hashedPassword = new PasswordHasher<User>().HashPassword(user, userDto.Password);
-            user.Username= userDto.Username;
-            user.HashedPassword = hashedPassword;
+            var user = await authService.RegisterAsync(userDto);
+            if(user is null)
+                return BadRequest("User Already Registered");
             return Ok(user);
         }
 
         [HttpPost("login")]
-        public ActionResult<string> Login(UserDto userDto)
+        public async  Task<ActionResult<string>> Login(UserDto userDto)
         {
-            if (user.Username != userDto.Username)
+            var userString= await authService.LoginAsync(userDto);
+            if (userString is null)
                 return BadRequest("User Not Found");
-            if (new PasswordHasher<User>().VerifyHashedPassword(user, user.HashedPassword, userDto.Password) == PasswordVerificationResult.Failed)
+            if (userString=="wrongPass")
                 return BadRequest("Wrong Password");
-            string token = CreateToken(user);
-            return Ok(token);
+            return Ok(userString);
 
         }
-        private string CreateToken(User user)
+
+        [Authorize]
+        [HttpGet]
+        public IActionResult AuthenticatedOnlyEndPoint()
         {
-            var claim = new List<Claim>
-            {
-                new Claim(ClaimTypes.Name,user.Username)
-            };
-            var key = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(configuration.GetValue<string>("AppSettings:Token")!));
-            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha512);
-            var tokenDescriptor = new JwtSecurityToken(
-                issuer: configuration.GetValue<string>("AppSettings:Issuer"),
-                audience: configuration.GetValue<string>("AppSettings:Audience"),
-                claims: claim,
-                expires: DateTime.Now.AddDays(1),
-                signingCredentials: creds
-                );
-            return new JwtSecurityTokenHandler().WriteToken(tokenDescriptor);
+            return Ok("You are authenticated!");
         }
+
+        [Authorize(Roles ="Admin")]
+        [HttpGet("admin-only")]
+        public IActionResult AdminOnlyEndPoint()
+        {
+            return Ok("You are an admin!");
+        }
+      
     }
 }
